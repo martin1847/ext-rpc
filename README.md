@@ -17,6 +17,8 @@ https://github.com/quarkiverse
 
 ## changelogs
 
+* 2025-12-09 DTO最多支持8层嵌套
+
 * 2023-07-19 更新说明
 
 

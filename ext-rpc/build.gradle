@@ -1,5 +1,5 @@
 plugins {
-    id "io.quarkus.extension"// version "2.4.0.Final"
+    id "io.quarkus.extension"//  version "3.27.1"
 }
 
 quarkusExtension {
