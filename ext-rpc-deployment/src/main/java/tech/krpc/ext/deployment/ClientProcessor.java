@@ -34,7 +34,7 @@ public interface ClientProcessor {
                                      //BuildProducer<NativeImageProxyDefinitionBuildItem> proxy,
                                      ClientRecorder recorder, CombinedIndexBuildItem indexBuildItem) throws MalformedURLException {
 
-        if (config.apps.isEmpty()) {
+        if (config.apps().isEmpty()) {
             LOG.info("==== SKip genRpcClientFactorys ..");
             return;
         }
@@ -49,7 +49,7 @@ public interface ClientProcessor {
                 }).collect(Collectors.toSet());
 
         //var proxySet = new HashSet<Class>();
-        for (Entry<String, ServerApp> entry : config.apps.entrySet()) {
+        for (Entry<String, ServerApp> entry : config.apps().entrySet()) {
             String app = entry.getKey();
             ServerApp host = entry.getValue();
 
@@ -65,7 +65,7 @@ public interface ClientProcessor {
                 //proxySet.add(s);
             });
 
-            var channelRuntime = recorder.createManagedChannel(host.url);
+            var channelRuntime = recorder.createManagedChannel(host.url());
 
             SyntheticBeanBuildItem.ExtendedBeanConfigurator configurator = SyntheticBeanBuildItem
                     .configure(RpcClientFactory.class)
@@ -77,7 +77,7 @@ public interface ClientProcessor {
             configurator.defaultBean();
             configurator.addQualifier().annotation(Named.class).addValue("value", app).done();
 
-            LOG.info("=== Set RpcClientFactory [ " + matched.size() + " -> " + host.url + "/" + app + " ] : "
+            LOG.info("=== Set RpcClientFactory [ " + matched.size() + " -> " + host.url() + "/" + app + " ] : "
                     + matched.stream().map(Class::getSimpleName).collect(Collectors.joining(",")));
             syntheticBeanBuildItemBuildProducer.produce(configurator.done());
         }

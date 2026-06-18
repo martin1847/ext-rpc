@@ -5,12 +5,14 @@ import java.util.Set;
 
 import io.quarkus.runtime.annotations.ConfigDocMapKey;
 import io.quarkus.runtime.annotations.ConfigDocSection;
-import io.quarkus.runtime.annotations.ConfigItem;
 import io.quarkus.runtime.annotations.ConfigPhase;
 import io.quarkus.runtime.annotations.ConfigRoot;
+import io.smallrye.config.ConfigMapping;
+import io.smallrye.config.WithParentName;
 
-@ConfigRoot(name = "rpc.client", phase = ConfigPhase.BUILD_AND_RUN_TIME_FIXED)
-public class ClientConfig {
+@ConfigRoot(phase = ConfigPhase.BUILD_AND_RUN_TIME_FIXED)
+@ConfigMapping(prefix = "quarkus.rpc.client")
+public interface ClientConfig {
 
     public static final String GLOBAL  = "global";
 
@@ -19,14 +21,13 @@ public class ClientConfig {
      */
     @ConfigDocSection
     @ConfigDocMapKey("server-app-name")
-    @ConfigItem(name = ConfigItem.PARENT)
-    public Map<String, ServerApp> apps;
+    @WithParentName
+    Map<String, ServerApp> apps();
 
     /**
      * 配置服务的过滤器 ， 全局使用 ,多个英文逗号分隔
      */
-    @ConfigItem
-    public Map<String, Set<String>> filters;
+    Map<String, Set<String>> filters();
 
 
 
@@ -36,13 +37,6 @@ public class ClientConfig {
     //@ConfigItem//(defaultValue = "SESSION")
     //public String cache;
 
-    @Override
-    public String toString() {
-        return "ClientConfig{" +
-                "apps=" + apps +
-                ", filters=" + filters  +
-                '}';
-    }
 
     //
     ///**

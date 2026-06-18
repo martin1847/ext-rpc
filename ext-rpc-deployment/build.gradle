@@ -1,7 +1,7 @@
 dependencies {
 //    implementation platform("io.quarkus:quarkus-bom:${quarkusPlatformVersion}")
 //    api "io.quarkus:quarkus-arc-deployment:${quarkusPlatformVersion}"
-    compileOnly "io.quarkus:quarkus-arc-deployment:${quarkusMiniSupport}"
+    implementation "io.quarkus:quarkus-arc-deployment:${quarkusMiniSupport}"
 //    api "io.quarkus:quarkus-agroal-deployment:${quarkusPlatformVersion}"
     implementation project(':ext-rpc')
 

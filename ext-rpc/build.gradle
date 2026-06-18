@@ -3,7 +3,7 @@ plugins {
 }
 
 quarkusExtension {
-    deploymentModule = 'deployment'
+    deploymentModule = 'ext-rpc-deployment'
 }
 
 dependencies {

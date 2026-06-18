@@ -96,8 +96,8 @@ public class RpcProcessor {
         if (serverList.size() > 0) {
             var clientClsList = new ArrayList<DotName>();
             boolean clientExists = new IsClient().getAsBoolean();
-            if (clientExists && config != null && config.apps != null && config.apps.size() > 0) {
-                config.apps.values().forEach(host ->
+            if (clientExists && config != null && config.apps() != null && config.apps().size() > 0) {
+                config.apps().values().forEach(host ->
                         serverList.forEach(s -> {
                             var clz = s.toString();
                             if (host.isMatch(clz)) {
