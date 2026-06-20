@@ -17,6 +17,8 @@ https://github.com/quarkiverse
 
 ## changelogs
 
+* 2026-06-18 升级 Quarkus 3.2.9 → 3.33.2，config root 迁移为 @ConfigRoot + @ConfigMapping 接口
+
 * 2025-12-09 DTO最多支持8层嵌套
 
 * 2023-07-19 更新说明
