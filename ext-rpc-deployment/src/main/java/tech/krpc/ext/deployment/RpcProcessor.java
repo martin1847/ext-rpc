@@ -20,6 +20,7 @@ import io.quarkus.deployment.annotations.ExecutionTime;
 import io.quarkus.deployment.annotations.Record;
 import io.quarkus.deployment.builditem.CombinedIndexBuildItem;
 import io.quarkus.deployment.builditem.FeatureBuildItem;
+import io.quarkus.deployment.builditem.NativeImageFeatureBuildItem;
 import io.quarkus.deployment.builditem.nativeimage.NativeImageProxyDefinitionBuildItem;
 import io.quarkus.deployment.builditem.nativeimage.ReflectiveClassBuildItem;
 import org.jboss.jandex.AnnotationInstance;
@@ -45,6 +46,44 @@ public class RpcProcessor {
     @BuildStep
     FeatureBuildItem feature() {
         return new FeatureBuildItem(FEATURE);
+    }
+
+    /**
+     * Fully qualified names of the io.grpc SPI provider impls whose no-arg constructors must be
+     * reflectively available so grpc can instantiate them in a native image (Quarkus builds with
+     * {@code -H:-UseServiceLoaderFeature}). Mirrors the proven downstream
+     * {@code NativeGrpcProviderConfig} @RegisterForReflection holder (krpc SPEC.md §13.2), now
+     * upstreamed so consumers need zero per-service glue.
+     */
+    static final String[] GRPC_PROVIDER_IMPLS = {
+            "io.grpc.netty.NettyServerProvider",
+            "io.grpc.netty.NettyChannelProvider",
+            "io.grpc.netty.UdsNettyChannelProvider",
+            "io.grpc.internal.PickFirstLoadBalancerProvider",
+            "io.grpc.internal.DnsNameResolverProvider"
+    };
+
+    /**
+     * Server-side native support for krpc's raw io.grpc usage. Only emitted for a server build
+     * (a client-only consumer's provider lists are already baked by krpc's client
+     * {@code GraalvmBuild}). Two parts:
+     * <ul>
+     *   <li>reflective registration of the grpc provider impls (no-arg constructors) so grpc's
+     *       runtime ServiceLoader can instantiate them;</li>
+     *   <li>a build-time {@link tech.krpc.ext.runtime.graal.NettyServerProviderFeature} that forces
+     *       {@code io.grpc.ServerProvider.provider()} during analysis, baking the server provider
+     *       list into the image heap (equivalent of the downstream {@code --features=} flag).</li>
+     * </ul>
+     */
+    @BuildStep(onlyIf = IsServer.class)
+    void regGrpcServerProvidersForNative(BuildProducer<ReflectiveClassBuildItem> reflective,
+                                         BuildProducer<NativeImageFeatureBuildItem> feature) {
+        reflective.produce(ReflectiveClassBuildItem.builder(GRPC_PROVIDER_IMPLS)
+                .constructors(true).methods(false).fields(false).build());
+        feature.produce(new NativeImageFeatureBuildItem(
+                "tech.krpc.ext.runtime.graal.NettyServerProviderFeature"));
+        LOG.info("=== [ ext-rpc native ] registered " + GRPC_PROVIDER_IMPLS.length
+                + " grpc provider impls + ServerProvider feature");
     }
 
     @BuildStep
@@ -240,6 +279,14 @@ public class RpcProcessor {
         @Override
         public boolean getAsBoolean() {
             return checkExists("tech.krpc.client.ClientContext");
+        }
+    }
+
+    static class IsServer implements BooleanSupplier {
+
+        @Override
+        public boolean getAsBoolean() {
+            return isServer();
         }
     }
 
