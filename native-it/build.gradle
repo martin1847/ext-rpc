@@ -1,0 +1,57 @@
+// ext-rpc native integration-test app — an IT/verification artifact, NEVER published
+// (the root build.gradle guard skips upload.gradle for this module, so it produces no
+// Maven publication and never enters the Central bundle).
+//
+// A minimal, DB-free / JWT-free Quarkus consumer whose sole job is to give the ext-rpc
+// extension something to native-compile against THIS branch's CNFE fix (not a published
+// ext-rpc). The two ext-rpc artifacts that rpc-server-quarkus pulls transitively are
+// substituted onto the local projects below, so augmentation + native reflection run the
+// code under test. Two @RpcService beans:
+//   - Hello   (flat DTO)      — baseline: native boots, gRPC dispatch, server provider reg.
+//   - Profile (inherited DTO) — the fix guard: a Child-extends-Base DTO whose inherited
+//                               List<Tag> field must round-trip at native runtime.
+plugins {
+    // Version comes from the root plugins block (declared apply false there) so both quarkus
+    // plugins share one classloader — see root build.gradle. No version here.
+    id 'io.quarkus'
+}
+
+group = "tech.krpc.ext.it"
+
+// rpc-server-quarkus:1.0.3 is compiled for JVM 21; the root subprojects block pins 17, which
+// makes Gradle's org.gradle.jvm.version=17 attribute reject it. This app is an IT artifact
+// (never published, native-only), so it is free to require 21 — overrides the root default.
+java {
+    sourceCompatibility = "21"
+    targetCompatibility = "21"
+}
+
+// Force both ext-rpc artifacts (rpc-server-quarkus declares ext-rpc 1.0.1 transitively)
+// onto the local projects, so the native image is built against this branch — not Central.
+configurations.all {
+    resolutionStrategy.dependencySubstitution {
+        substitute module('tech.krpc.ext:ext-rpc') using project(':ext-rpc')
+        substitute module('tech.krpc.ext:ext-rpc-deployment') using project(':ext-rpc-deployment')
+    }
+}
+
+dependencies {
+    // Server runtime (rpc-server + http-server + grpc-netty) from Central; the ext-rpc
+    // extension it declares is substituted to the local :ext-rpc project above, which in
+    // turn wires the local :ext-rpc-deployment via the extension descriptor.
+    implementation "tech.krpc:rpc-server-quarkus:1.0.3"
+
+    // Local extension under test — explicit so the "test this branch" intent is on the
+    // page, and so the Quarkus deployment resolution anchors on the project.
+    implementation project(':ext-rpc')
+
+    implementation platform("io.quarkus.platform:quarkus-bom:${quarkusMiniSupport}")
+    implementation "io.quarkus:quarkus-arc"
+    implementation "io.quarkus:quarkus-netty"
+    // jakarta.validation support (RpcServiceExpose @Inject Validator; krpc SPEC §7).
+    implementation "io.quarkus:quarkus-hibernate-validator"
+
+    // io.grpc aligned to the Quarkus 3.33 LTS line (krpc SPEC §13.1); matches the version
+    // rpc-server-quarkus declares, so native-image's grpc substitutions match the shape.
+    runtimeOnly "io.grpc:grpc-netty:1.79.0"
+}

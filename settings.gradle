@@ -17,3 +17,8 @@ pluginManagement {
 
 
 include 'ext-rpc','ext-rpc-deployment'
+
+// native integration-test app. NOT published: the root build.gradle skips upload.gradle
+// for this module, so it produces no Maven publication and never enters the Central bundle
+// (publish-central.sh globs */build/central-staging, which native-it never creates).
+include 'native-it'
