@@ -1,6 +1,5 @@
 package tech.krpc.ext.deployment;
 
-import java.lang.reflect.ParameterizedType;
 import java.util.ArrayList;
 import java.util.HashSet;
 import java.util.List;
@@ -26,6 +25,7 @@ import io.quarkus.deployment.builditem.nativeimage.ReflectiveClassBuildItem;
 import org.jboss.jandex.AnnotationInstance;
 import org.jboss.jandex.AnnotationTarget;
 import org.jboss.jandex.DotName;
+import org.jboss.jandex.IndexView;
 import org.jboss.jandex.Type;
 import org.jboss.jandex.Type.Kind;
 import org.jboss.logging.Logger;
@@ -196,7 +196,7 @@ public class RpcProcessor {
             int max_level = 8;
             int i = 1;
             for (; i <= max_level; i++) {
-                childSet = recursionNestDtoType(childSet);
+                childSet = recursionNestDtoType(indexBuildItem.getIndex(), childSet);
                 if (!childSet.isEmpty()) {
                     LOG.info("====== Level " + i + " [ " + childSet.size() + " Nest DTO ] For Jackson : " + childSet.stream()
                             .map(name -> name.substring(name.lastIndexOf('.') + 1))
@@ -223,55 +223,70 @@ public class RpcProcessor {
 
     }
 
-    static Set<String> recursionNestDtoType(Set<String> total) {
+    /**
+     * Walk each DTO plus its super-class chain via Jandex (classloader-free) and collect the
+     * nested/inherited field types that also need reflective registration. Replaces the previous
+     * {@code Class.forName}-based walk, which threw {@link ClassNotFoundException} in the Quarkus
+     * native augmentation phase (the augmentation classloader can't see application DTOs) and thus
+     * silently skipped registration of a DTO's inherited field types.
+     */
+    static Set<String> recursionNestDtoType(IndexView index, Set<String> total) {
         var childSet = new HashSet<String>();
         for (var dtoName : total) {
-
-            try {
-                var base = Class.forName(dtoName);
-                do {
-                    extractSuper(childSet, total, base);
-                    base = base.getSuperclass();
-                    recursionNestDtoType(childSet, total, base);
-                } while (base != Object.class);
-            } catch (ClassNotFoundException e) {
-                e.printStackTrace();
+            var seen = new HashSet<DotName>();
+            var current = index.getClassByName(DotName.createSimple(dtoName));
+            // Non-application DTOs may be absent from the index -> nothing to walk.
+            while (current != null
+                    && !DotName.OBJECT_NAME.equals(current.name())
+                    && seen.add(current.name())) {
+                for (var f : current.fields()) {
+                    collectDtoType(index, childSet, total, f.type());
+                }
+                var superType = current.superClassType();
+                if (superType != null) {
+                    // Also captures a generic base's actual type args, e.g. Base<Foo> -> Foo,
+                    // which the old raw getSuperclass() walk lost.
+                    collectDtoType(index, childSet, total, superType);
+                }
+                var superName = current.superName();
+                if (superName == null || DotName.OBJECT_NAME.equals(superName)) {
+                    break;
+                }
+                current = index.getClassByName(superName);
             }
         }
         return childSet;
     }
 
-    private static void extractSuper(HashSet<String> childSet, Set<String> total, Class clz) {
-        //if(null == clz){
-        //    LOG.debug("skip null clz");
-        //    return;
-        //}
-        for (var f : clz.getDeclaredFields()) {
-            var type = f.getGenericType();
-            recursionNestDtoType(childSet, total, type);
+    static void collectDtoType(IndexView index, Set<String> childSet, Set<String> total, Type type) {
+        switch (type.kind()) {
+            case CLASS -> addNestedDto(index, childSet, total, type.name());
+            case PARAMETERIZED_TYPE -> {
+                var pt = type.asParameterizedType();
+                addNestedDto(index, childSet, total, pt.name());
+                for (var arg : pt.arguments()) {
+                    collectDtoType(index, childSet, total, arg);
+                }
+            }
+            default -> {
+                // PRIMITIVE / ARRAY / VOID / TYPE_VARIABLE / WILDCARD_TYPE: skip.
+                // Matches the original reflection walk (arrays -> use List, primitives ignored).
+            }
         }
     }
 
-    static void recursionNestDtoType(HashSet<String> childSet, Set<String> total, java.lang.reflect.Type type) {
-        if (type instanceof Class) {
-            var fClz = ((Class<?>) type);
-            var fName = fClz.getName();
-            // skip Array , use list
-            if (!fClz.isPrimitive()
-                    && !fClz.isArray()
-                    && !fClz.isEnum()
-                    && !fClz.isInterface()
-                    && !fName.startsWith("java.")
-                    && !total.contains(fName)) {
-                childSet.add(fName);
-            }
-        } else if (type instanceof ParameterizedType) {
-            var pt = (ParameterizedType) type;
-            recursionNestDtoType(childSet, total, pt.getRawType());
-            for (var t : pt.getActualTypeArguments()) {
-                recursionNestDtoType(childSet, total, t);
-            }
+    private static void addNestedDto(IndexView index, Set<String> childSet, Set<String> total, DotName name) {
+        var fName = name.toString();
+        if (fName.startsWith("java.") || total.contains(fName) || childSet.contains(fName)) {
+            return;
         }
+        var ci = index.getClassByName(name);
+        // Skip enums/interfaces/annotations when the index can prove it; unknown (non-indexed)
+        // types are still registered rather than silently dropped.
+        if (ci != null && (ci.isEnum() || ci.isInterface() || ci.isAnnotation())) {
+            return;
+        }
+        childSet.add(fName);
     }
 
     static class IsClient implements BooleanSupplier {

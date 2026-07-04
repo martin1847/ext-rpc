@@ -17,6 +17,8 @@ https://github.com/quarkiverse
 
 ## changelogs
 
+* 2026-07-04 (1.0.3) 修复 native augmentation 阶段 DTO 父类走查用 Class.forName 抛 CNFE（父类字段反射注册被静默跳过）：改用 Jandex IndexView 走父类链，正确注册继承字段类型
+
 * 2026-06-18 升级 Quarkus 3.2.9 → 3.33.2，config root 迁移为 @ConfigRoot + @ConfigMapping 接口
 
 * 2025-12-09 DTO最多支持8层嵌套
