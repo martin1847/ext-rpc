@@ -1,0 +1,151 @@
+# Native-image smoke for the ext-rpc Quarkus extension. ext-rpc is a library and cannot be
+# native-compiled on its own, so this builds the native-it consumer app (a minimal, DB-free /
+# JWT-free Quarkus app that depends on the LOCAL ext-rpc + ext-rpc-deployment projects) as a
+# GraalVM native image AND boots it to smoke two gRPC services over rpcurl:
+#   - native-it/Hello/hello       flat-DTO baseline: native boots, gRPC dispatch, provider reg.
+#   - native-it/Profile/describe  inherited-DTO guard: a Child-extends-Base DTO whose INHERITED
+#                                 List<Tag> field must round-trip at native runtime.
+# The inherited-field round-trip + the "no ClassNotFoundException in the build log" assertion are
+# the direct regression guards for the DTO-super-class Jandex fix (RpcProcessor): pre-fix, the
+# native augmentation walked the super-class chain with Class.forName, threw CNFE in the build
+# log, silently skipped the base class, and the inherited field vanished at native runtime.
+name: native-smoke
+on:
+  push:
+    branches: [main, dev]
+  pull_request:
+    # Only on changes that can affect the native image; skip doc-only PRs to save CI minutes.
+    paths:
+      - '**/*.java'
+      - '**/*.gradle'
+      - '**/*.properties'
+      - '**/gradle.properties'
+      - '**/native-image/**'
+      - '.github/workflows/native-smoke.yml'
+      - '.github/ci-init.gradle'
+permissions:
+  contents: read
+concurrency:
+  group: native-smoke-${{ github.ref }}
+  cancel-in-progress: true
+jobs:
+  native-smoke:
+    runs-on: ubuntu-latest
+    timeout-minutes: 25
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Mandrel (GraalVM) JDK 21
+        uses: graalvm/setup-graalvm@v1
+        with:
+          distribution: 'mandrel'
+          java-version: '21'
+          github-token: ${{ secrets.GITHUB_TOKEN }}
+
+      # ext-rpc does not commit a Gradle wrapper (.gitignore excludes gradlew* / wrapper/), so
+      # pin the same Gradle the extension is developed against instead of ./gradlew.
+      - name: Set up Gradle 9.6.0
+        uses: gradle/actions/setup-gradle@v4
+        with:
+          gradle-version: '9.6.0'
+
+      - name: Build native-it native image (host toolchain, no container)
+        run: |
+          set -euo pipefail
+          # Tee the whole build so the next step can assert the log is CNFE-free.
+          gradle --init-script .github/ci-init.gradle :native-it:build \
+            -Dquarkus.native.enabled=true \
+            -Dquarkus.native.container-build=false \
+            -Dquarkus.package.jar.enabled=false \
+            -x test 2>&1 | tee /tmp/native-build.log
+
+      - name: Assert native build log is CNFE-free (DTO-super Jandex fix regression guard)
+        run: |
+          set -euo pipefail
+          # THE direct regression guard for the CNFE fix. Pre-fix, the native augmentation's
+          # DTO super-class walk used Class.forName in the augmentation classloader, which threw
+          # ClassNotFoundException (and/or printed a stack trace) and silently dropped the base
+          # class. Post-fix (Jandex IndexView walk) neither marker may appear. Precise grep so an
+          # unrelated substring can't mask a real regression.
+          if grep -nE 'ClassNotFoundException|printStackTrace' /tmp/native-build.log; then
+            echo "::error::CNFE regression — forbidden marker (ClassNotFoundException / printStackTrace) in the native build log"
+            exit 1
+          fi
+          echo "PASS: no ClassNotFoundException / printStackTrace in the native build log"
+
+      - name: Fetch the rpcurl CLI (Rust gRPC client, latest prebuilt linux binary)
+        run: |
+          set -euo pipefail
+          # Reuse the published musl binary from krpc-crates releases — no Rust toolchain /
+          # cross-repo build. Auto-tracks the LATEST release so a future rpcurl bump is picked up
+          # without touching this workflow. Public repo → no auth. Resolve the latest linux-musl
+          # asset URL from the releases API, then download it.
+          URL=$(curl -sSL https://api.github.com/repos/martin1847/krpc-crates/releases/latest \
+            | grep -oE '"browser_download_url": *"[^"]*x86_64-unknown-linux-musl\.zip"' \
+            | head -1 | sed -E 's/.*"(https[^"]+)".*/\1/')
+          if [ -z "$URL" ]; then echo "::error::no linux-musl rpcurl asset in the latest krpc-crates release"; exit 1; fi
+          echo "rpcurl asset: $URL"
+          curl -sSL -o rpcurl.zip "$URL"
+          unzip -o rpcurl.zip -d rpcurl-bin
+          # The zip nests the binary under a versioned dir (rpcurl-<ver>-<triple>/rpcurl);
+          # locate it by name rather than assuming a path, so a version bump keeps working.
+          RPCURL_BIN=$(find rpcurl-bin -type f -name rpcurl | head -1)
+          [ -n "$RPCURL_BIN" ] || { echo "::error::rpcurl binary not found in the release zip"; exit 1; }
+          chmod +x "$RPCURL_BIN"
+          # Stabilize the path for the next step.
+          mkdir -p "$HOME/.local/bin" && cp "$RPCURL_BIN" "$HOME/.local/bin/rpcurl"
+          echo "$HOME/.local/bin" >> "$GITHUB_PATH"
+          "$HOME/.local/bin/rpcurl" --version
+
+      - name: Boot the native runner + smoke both gRPC services (rpcurl)
+        run: |
+          set -euo pipefail
+          RUNNER=$(ls native-it/build/*-runner)
+          echo "runner: $RUNNER"; file "$RUNNER"
+          "$RUNNER" >/tmp/native-it.log 2>&1 &
+          PID=$!
+          # wait for "started in" (native boots in ms; generous cap)
+          for i in $(seq 1 50); do
+            grep -q "started in" /tmp/native-it.log && break
+            sleep 0.2
+          done
+          echo "--- boot log ---"; cat /tmp/native-it.log
+          grep -q "native" /tmp/native-it.log || { echo "::error::runner did not report native mode"; kill $PID; exit 1; }
+
+          fail=0
+
+          # Baseline: flat-DTO service over gRPC (the Rust rpcurl client -> native krpc server on
+          # :50051). Validates the krpc client wire protocol (cross-language) AND server gRPC
+          # dispatch + RpcResult envelope end-to-end.
+          echo "--- rpcurl gRPC: native-it/Hello/hello (flat baseline) ---"
+          hello=$(rpcurl http://localhost:50051/native-it/Hello/hello -d '{"name":"native-ci"}' 2>&1 || true)
+          echo "$hello"
+          if echo "$hello" | grep -q '"code": 0' && echo "$hello" | grep -q 'Hello, native-ci'; then
+            echo "PASS baseline Hello -> code 0, greeting echoed"
+          else
+            echo "::error::baseline Hello did not return code 0 with the expected greeting"; fail=1
+          fi
+
+          # The CNFE-fix guard: the request carries the INHERITED List<Tag> tags field (declared on
+          # base Envelope, not on ProfileRequest). A working native image must (a) deserialize that
+          # inherited field into nested Tag DTOs, (b) let the server read it — summary is derived
+          # server-side as "tagCount=2; labels=gold,vip" — and (c) serialize the inherited field
+          # back out. Pre-fix, Envelope+Tag never register for native reflection, so tags is null
+          # in / absent out and every assertion below fails. Strong assertion: the response JSON
+          # must actually CONTAIN the inherited field's values, not merely avoid an error.
+          echo "--- rpcurl gRPC: native-it/Profile/describe (inherited-DTO CNFE guard) ---"
+          profile=$(rpcurl http://localhost:50051/native-it/Profile/describe \
+            -d '{"owner":"martin","tags":[{"label":"gold","weight":10},{"label":"vip","weight":5}]}' 2>&1 || true)
+          echo "$profile"
+          # (a)+(b) server materialized & read the inherited field; (c) echoed the inherited tag back.
+          if echo "$profile" | grep -q '"code": 0' \
+             && echo "$profile" | grep -q 'tagCount=2; labels=gold,vip' \
+             && echo "$profile" | grep -q '"label": "gold"' \
+             && echo "$profile" | grep -q '"label": "vip"'; then
+            echo "PASS inherited-DTO round-trip -> inherited tags deserialized, read server-side, and echoed back"
+          else
+            echo "::error::inherited-DTO round-trip FAILED — inherited tags field did not round-trip at native runtime (CNFE fix regression)"; fail=1
+          fi
+
+          kill $PID 2>/dev/null || true
+          exit $fail

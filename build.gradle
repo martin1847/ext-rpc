@@ -2,6 +2,11 @@
 plugins {
     id 'java-library'
     id "io.quarkus.extension" version "$quarkusMiniSupport" apply false
+    // native-it applies this (id 'io.quarkus' with no version). Declared here so BOTH quarkus
+    // plugins load from the ROOT build's single plugin classloader; otherwise ext-rpc's
+    // io.quarkus.extension and native-it's io.quarkus each load a separate copy of
+    // io.quarkus.devtools.* and cross-loader inheritance throws IllegalAccessError (Gradle 9.x).
+    id "io.quarkus" version "$quarkusMiniSupport" apply false
 }
 
 
@@ -31,7 +36,13 @@ allprojects {
 subprojects {
     apply plugin: 'java-library'
 
-    apply from: "$rootProject.projectDir/gradle/upload.gradle"
+    // native-it is an IT/verification app, NOT a published artifact: skip the publish wiring
+    // (maven-publish + signing + javadoc/sources jars) so it produces no Maven publication and
+    // never enters the Central bundle. publish-central.sh globs */build/central-staging, which
+    // this module then never creates. (EXTRPC-NATIVE-IT guardrail.)
+    if (name != 'native-it') {
+        apply from: "$rootProject.projectDir/gradle/upload.gradle"
+    }
 
 
     group = "$group"
@@ -40,8 +51,11 @@ subprojects {
 
 
     java{
-        sourceCompatibility = "17"
-        targetCompatibility = "17"
+        // Java 21 baseline: ext-rpc depends on the krpc rpc-* artifacts (1.0.3+), which are
+        // compiled for JVM 21 (the framework's JDK 21 virtual-threads baseline). A krpc extension
+        // must match — any ext-rpc consumer already needs a 21 runtime transitively.
+        sourceCompatibility = "21"
+        targetCompatibility = "21"
     }
 //    sourceCompatibility = JavaVersion.VERSION_1_8
 //    targetCompatibility = JavaVersion.VERSION_1_8
