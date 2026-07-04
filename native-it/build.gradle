@@ -18,13 +18,7 @@ plugins {
 
 group = "tech.krpc.ext.it"
 
-// rpc-server-quarkus:1.0.3 is compiled for JVM 21; the root subprojects block pins 17, which
-// makes Gradle's org.gradle.jvm.version=17 attribute reject it. This app is an IT artifact
-// (never published, native-only), so it is free to require 21 — overrides the root default.
-java {
-    sourceCompatibility = "21"
-    targetCompatibility = "21"
-}
+// Java 21 comes from the root subprojects block (ext-rpc is a JDK-21 krpc extension).
 
 // Force both ext-rpc artifacts (rpc-server-quarkus declares ext-rpc 1.0.1 transitively)
 // onto the local projects, so the native image is built against this branch — not Central.

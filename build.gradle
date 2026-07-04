@@ -51,8 +51,11 @@ subprojects {
 
 
     java{
-        sourceCompatibility = "17"
-        targetCompatibility = "17"
+        // Java 21 baseline: ext-rpc depends on the krpc rpc-* artifacts (1.0.3+), which are
+        // compiled for JVM 21 (the framework's JDK 21 virtual-threads baseline). A krpc extension
+        // must match — any ext-rpc consumer already needs a 21 runtime transitively.
+        sourceCompatibility = "21"
+        targetCompatibility = "21"
     }
 //    sourceCompatibility = JavaVersion.VERSION_1_8
 //    targetCompatibility = JavaVersion.VERSION_1_8
