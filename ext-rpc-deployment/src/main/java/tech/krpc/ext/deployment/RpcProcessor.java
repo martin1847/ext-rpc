@@ -252,7 +252,19 @@ public class RpcProcessor {
                 if (superName == null || DotName.OBJECT_NAME.equals(superName)) {
                     break;
                 }
-                current = index.getClassByName(superName);
+                var next = index.getClassByName(superName);
+                if (next == null) {
+                    // Base class is outside the Jandex index (typically an external library type):
+                    // the walk stops here, so this base's own declared fields can't be collected.
+                    // Surface it instead of failing silently.
+                    log.warn(
+                            "[krpc-ext] DTO {} extends non-indexed base {}; its inherited fields are"
+                                    + " NOT auto-registered for native reflection — add"
+                                    + " @RegisterForReflection to {} if it is used at native runtime.",
+                            current.name(), superName, superName);
+                    break;
+                }
+                current = next;
             }
         }
         return childSet;

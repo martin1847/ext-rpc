@@ -53,6 +53,18 @@ class RpcProcessorNestDtoTest {
     static class GenericChild extends GenericBase<PayloadDto> {
     }
 
+    /**
+     * Simulates an external library base that is NOT in the Jandex index. Its own declared field
+     * ({@link #secret}) can never be reached, since the walk cannot resolve a non-indexed class.
+     */
+    static class ExternalBase {
+        InnerDto secret;
+    }
+
+    static class ChildOfExternal extends ExternalBase {
+        long id;
+    }
+
     private static Index buildIndex() throws IOException {
         return Index.of(
                 InnerDto.class,
@@ -110,5 +122,25 @@ class RpcProcessorNestDtoTest {
         // InnerDto has only a String field -> nothing extra to register.
         assertTrue(result.isEmpty(),
                 "flat DTO should register nothing extra, got: " + result);
+    }
+
+    @Test
+    void nonIndexedBaseStopsWalkWithoutCollectingItsFields() throws IOException {
+        // Index the child but deliberately NOT its super-class ExternalBase, mimicking an
+        // external library base absent from the CombinedIndex. This drives the walk's
+        // "superName present but getClassByName == null" branch, which logs a WARN and stops.
+        Index index = Index.of(ChildOfExternal.class, InnerDto.class);
+
+        Set<String> result =
+                RpcProcessor.recursionNestDtoType(index, Set.of(ChildOfExternal.class.getName()));
+
+        // The walk must terminate gracefully (no crash on the null super-class).
+        // ExternalBase itself is a non-indexed CLASS and is collected as a type to register...
+        assertTrue(result.contains(ExternalBase.class.getName()),
+                "expected the non-indexed base ExternalBase to still be registered, got: " + result);
+        // ...but its own declared field type (InnerDto) is unreachable because the walk cannot
+        // descend into a class the index does not have.
+        assertFalse(result.contains(InnerDto.class.getName()),
+                "InnerDto is declared on the non-indexed base and must be unreachable, got: " + result);
     }
 }
