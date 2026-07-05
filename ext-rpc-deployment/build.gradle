@@ -11,8 +11,14 @@ dependencies {
     annotationProcessor("io.quarkus:quarkus-extension-processor:${quarkusMiniSupport}")
 //    api 'org.reflections:reflections:0.10.2'
 
+    // Guard tests for EXTRPC-URL-001 (client URL runtime override). QuarkusUnitTest boots the
+    // extension in-JVM so the synthetic RpcClientFactory bean is built and its channel dial
+    // target can be asserted; grpc-netty is the ManagedChannelBuilder provider the supplier needs.
     testImplementation "org.junit.jupiter:junit-jupiter:5.10.5"
     testRuntimeOnly "org.junit.platform:junit-platform-launcher:1.10.5"
+    testImplementation "io.quarkus:quarkus-junit-internal:${quarkusMiniSupport}"
+    testImplementation "io.grpc:grpc-api:1.79.0"
+    testRuntimeOnly "io.grpc:grpc-netty:1.79.0"
 }
 
 test {

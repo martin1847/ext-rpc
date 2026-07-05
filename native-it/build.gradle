@@ -39,6 +39,11 @@ dependencies {
     // page, and so the Quarkus deployment resolution anchors on the project.
     implementation project(':ext-rpc')
 
+    // EXTRPC-URL-001 native env-override guard: the client consumer (PaymentRpc + ClientUrlProbe)
+    // compiles against RpcClientFactory. ext-rpc declares rpc-client as `implementation`, so it is
+    // not transitive to this consumer's compile classpath — make it explicit.
+    implementation "tech.krpc:rpc-client:${rpcVersion}"
+
     implementation platform("io.quarkus.platform:quarkus-bom:${quarkusMiniSupport}")
     implementation "io.quarkus:quarkus-arc"
     implementation "io.quarkus:quarkus-netty"
