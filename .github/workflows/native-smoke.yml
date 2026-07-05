@@ -97,12 +97,16 @@ jobs:
           echo "$HOME/.local/bin" >> "$GITHUB_PATH"
           "$HOME/.local/bin/rpcurl" --version
 
-      - name: Boot the native runner + smoke both gRPC services (rpcurl)
+      - name: Boot the native runner + smoke both gRPC services (rpcurl) + client URL env-override
         run: |
           set -euo pipefail
           RUNNER=$(ls native-it/build/*-runner)
           echo "runner: $RUNNER"; file "$RUNNER"
-          "$RUNNER" >/tmp/native-it.log 2>&1 &
+          # EXTRPC-URL-001: application.properties bakes a build-time PLACEHOLDER dial URL
+          # (quarkus.rpc.client.payment-server.url=http://buildhost.invalid:59991). This pod-style
+          # env var MUST override it at native runtime (MicroProfile ordinal). Set it on boot.
+          QUARKUS_RPC_CLIENT_PAYMENT_SERVER_URL="http://runtimehost.example:50057" \
+            "$RUNNER" >/tmp/native-it.log 2>&1 &
           PID=$!
           # wait for "started in" (native boots in ms; generous cap)
           for i in $(seq 1 50); do
@@ -113,6 +117,20 @@ jobs:
           grep -q "native" /tmp/native-it.log || { echo "::error::runner did not report native mode"; kill $PID; exit 1; }
 
           fail=0
+
+          # EXTRPC-URL-001 guard: the payment-server client factory's runtime-resolved dial target
+          # must be the ENV value, not the build-time placeholder. The recorder logs
+          # "=== RpcClientFactory [ payment-server -> <host>:<port> ] (runtime-resolved)" at boot,
+          # forced by the @Startup ClientUrlProbe. Pre-fix the URL was consumed at build
+          # (BUILD_AND_RUN_TIME_FIXED config + STATIC_INIT build step), so the placeholder was baked
+          # into the image and the env override was ignored — the exact LH staging regression.
+          echo "--- EXTRPC-URL-001: client URL runtime env override ---"
+          if grep -q 'RpcClientFactory \[ payment-server -> runtimehost.example:50057 ' /tmp/native-it.log \
+             && ! grep -q 'buildhost.invalid' /tmp/native-it.log; then
+            echo "PASS client URL env override -> native dialed runtimehost.example:50057 (build placeholder overridden)"
+          else
+            echo "::error::client URL env override FAILED — native did not dial the env URL (EXTRPC-URL-001 regression)"; fail=1
+          fi
 
           # Baseline: flat-DTO service over gRPC (the Rust rpcurl client -> native krpc server on
           # :50051). Validates the krpc client wire protocol (cross-language) AND server gRPC

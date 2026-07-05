@@ -12,8 +12,7 @@ import io.quarkus.runtime.annotations.Recorder;
 import jakarta.inject.Named;
 import org.jboss.logging.Logger;
 import tech.krpc.client.RpcClientFactory;
-import tech.krpc.ext.runtime.bridge.FacConfigImpl;
-import tech.krpc.ext.runtime.bridge.FactoryConfig;
+import tech.krpc.client.CacheManager;
 
 @Recorder
 public class ClientRecorder implements tech.krpc.ext.runtime.Recorder {
@@ -21,20 +20,41 @@ public class ClientRecorder implements tech.krpc.ext.runtime.Recorder {
 
     static final String CACHE_MANAGER = "tech.krpc.client.CacheManager";
 
-    public RuntimeValue<FactoryConfig> createManagedChannel(String urlString) throws MalformedURLException {
-        var url = new URL(urlString);
-        return new RuntimeValue<>(new FacConfigImpl(url.getHost(), url.getPort() < 0 ? url.getDefaultPort() : url.getPort(),
-                "https".equals(url.getProtocol())));
+    private final RuntimeValue<ClientRuntimeConfig> runtimeConfig;
+
+    // Quarkus injects the RUN_TIME config mapping into the recorder ctor only as a RuntimeValue;
+    // RUN_TIME config cannot be a build-step parameter, so the URL is carried here and read at
+    // runtime inside the supplier.
+    public ClientRecorder(RuntimeValue<ClientRuntimeConfig> runtimeConfig) {
+        this.runtimeConfig = runtimeConfig;
     }
 
-    public Supplier<RpcClientFactory> clientFactorySupplier(RuntimeValue<FactoryConfig> factoryConfigRuntimeValue,
-                                                            String appName) {
+    /**
+     * Supplies the per-app {@link RpcClientFactory} at RUNTIME. The dial URL is read from
+     * {@link ClientRuntimeConfig} inside the supplier — i.e. at runtime bean init, not at build —
+     * so an env / system-property override wins over the build-time default (EXTRPC-URL-001).
+     */
+    public Supplier<RpcClientFactory> clientFactorySupplier(String appName) {
         return () -> {
-            var conf = factoryConfigRuntimeValue.getValue();
+            var host = runtimeConfig.getValue().apps().get(appName);
+            if (host == null) {
+                throw new IllegalStateException(
+                        "No runtime URL configured for rpc client app '" + appName
+                                + "'. Set quarkus.rpc.client." + appName + ".url");
+            }
 
-            var channelBuilder =
-                    ManagedChannelBuilder.forAddress(conf.getHost(), conf.getPort());
-            if (conf.isTls()) {
+            URL url;
+            try {
+                url = new URL(host.url());
+            } catch (MalformedURLException e) {
+                throw new IllegalStateException(
+                        "Malformed quarkus.rpc.client." + appName + ".url = '" + host.url() + "'", e);
+            }
+            int port = url.getPort() < 0 ? url.getDefaultPort() : url.getPort();
+            boolean tls = "https".equals(url.getProtocol());
+
+            var channelBuilder = ManagedChannelBuilder.forAddress(url.getHost(), port);
+            if (tls) {
                 channelBuilder.useTransportSecurity();
             } else {
                 channelBuilder.usePlaintext();
@@ -53,7 +73,10 @@ public class ClientRecorder implements tech.krpc.ext.runtime.Recorder {
                 LOG.error("error get " + CACHE_MANAGER, e);
             }
 
-            fac.setDefaultCacheManager(cacheManager);
+            fac.setCacheManager((CacheManager) cacheManager);
+
+            LOG.info("=== RpcClientFactory [ " + appName + " -> " + url.getHost() + ":" + port
+                    + (tls ? " tls" : "") + " ] (runtime-resolved)");
 
             return fac;
         };

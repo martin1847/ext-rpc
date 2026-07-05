@@ -317,13 +317,14 @@ public class RpcProcessor {
         }
     }
 
-    @Record(ExecutionTime.STATIC_INIT)
+    @Record(ExecutionTime.RUNTIME_INIT)
     @BuildStep(onlyIf = IsClient.class)
-    void genRpcClientFactorys(ClientConfig config, BuildProducer<RpcServiceMBI> clientServiceMBIS,
+    void genRpcClientFactorys(ClientConfig config,
+                              BuildProducer<RpcServiceMBI> clientServiceMBIS,
                               BuildProducer<SyntheticBeanBuildItem> syntheticBeanBuildItemBuildProducer,
-                              //BuildProducer<NativeImageProxyDefinitionBuildItem> proxy,
                               ClientRecorder recorder, CombinedIndexBuildItem indexBuildItem) throws Exception {
-        ClientProcessor.genRpcClientFactorys(config, clientServiceMBIS, syntheticBeanBuildItemBuildProducer, recorder, indexBuildItem);
+        ClientProcessor.genRpcClientFactorys(config, clientServiceMBIS,
+                syntheticBeanBuildItemBuildProducer, recorder, indexBuildItem);
     }
 
     @Record(ExecutionTime.RUNTIME_INIT)

@@ -4,7 +4,6 @@
  */
 package tech.krpc.ext.deployment;
 
-import java.net.MalformedURLException;
 import java.util.List;
 import java.util.Map.Entry;
 import java.util.stream.Collectors;
@@ -29,20 +28,26 @@ public interface ClientProcessor {
 
     Logger LOG = Logger.getLogger(ClientProcessor.class);
 
-    static void genRpcClientFactorys(ClientConfig config, BuildProducer<RpcServiceMBI> clientServiceMBIS,
+    static void genRpcClientFactorys(ClientConfig config,
+                                     BuildProducer<RpcServiceMBI> clientServiceMBIS,
                                      BuildProducer<SyntheticBeanBuildItem> syntheticBeanBuildItemBuildProducer,
-                                     //BuildProducer<NativeImageProxyDefinitionBuildItem> proxy,
-                                     ClientRecorder recorder, CombinedIndexBuildItem indexBuildItem) throws MalformedURLException {
+                                     ClientRecorder recorder, CombinedIndexBuildItem indexBuildItem) {
 
         if (config.apps().isEmpty()) {
             LOG.info("==== SKip genRpcClientFactorys ..");
             return;
         }
 
+        // App @RpcService classes live in the application classloader, not this deployment/extension
+        // classloader — resolve them via the augmentation TCCL, else Class.forName throws CNFE at
+        // build time for a real client consumer (EXTRPC-URL-001; latent until a client app was
+        // actually configured). initialize=false: we only need the Class for name-match + recording
+        // it as a class literal into the runtime supplier.
+        var appCl = Thread.currentThread().getContextClassLoader();
         var services = indexBuildItem.getIndex().getAnnotations(RpcProcessor.RPC_SERVICE)
                 .stream().map(it -> {
                     try {
-                        return Class.forName(it.target().asClass().name().toString());
+                        return Class.forName(it.target().asClass().name().toString(), false, appCl);
                     } catch (ClassNotFoundException e) {
                         throw new RuntimeException(e);
                     }
@@ -65,19 +70,19 @@ public interface ClientProcessor {
                 //proxySet.add(s);
             });
 
-            var channelRuntime = recorder.createManagedChannel(host.url());
-
             SyntheticBeanBuildItem.ExtendedBeanConfigurator configurator = SyntheticBeanBuildItem
                     .configure(RpcClientFactory.class)
                     .scope(ApplicationScoped.class)
+                    .setRuntimeInit()
                     .unremovable()
                     //.destroyer(ClientDestory.class)
-                    .supplier(recorder.clientFactorySupplier(channelRuntime, app));
+                    .supplier(recorder.clientFactorySupplier(app));
 
             configurator.defaultBean();
             configurator.addQualifier().annotation(Named.class).addValue("value", app).done();
 
-            LOG.info("=== Set RpcClientFactory [ " + matched.size() + " -> " + host.url() + "/" + app + " ] : "
+            LOG.info("=== Set RpcClientFactory [ " + matched.size() + " -> " + app
+                    + " ] (url runtime-resolved) : "
                     + matched.stream().map(Class::getSimpleName).collect(Collectors.joining(",")));
             syntheticBeanBuildItemBuildProducer.produce(configurator.done());
         }

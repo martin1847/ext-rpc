@@ -18,11 +18,6 @@ import io.smallrye.config.WithDefault;
 public interface ServerApp {
 
     /**
-     * 服务器地址,如 https://backoffice-api.botaoyx.com
-     */
-    String url();
-
-    /**
      * 默认序列化方式 SerialEnum JSON,HESSIAN,KRYO
      */
     @WithDefault("JSON")
