@@ -12,6 +12,7 @@ import io.quarkus.runtime.annotations.Recorder;
 import jakarta.inject.Named;
 import org.jboss.logging.Logger;
 import tech.krpc.client.RpcClientFactory;
+import tech.krpc.client.CacheManager;
 
 @Recorder
 public class ClientRecorder implements tech.krpc.ext.runtime.Recorder {
@@ -72,7 +73,7 @@ public class ClientRecorder implements tech.krpc.ext.runtime.Recorder {
                 LOG.error("error get " + CACHE_MANAGER, e);
             }
 
-            fac.setDefaultCacheManager(cacheManager);
+            fac.setCacheManager((CacheManager) cacheManager);
 
             LOG.info("=== RpcClientFactory [ " + appName + " -> " + url.getHost() + ":" + port
                     + (tls ? " tls" : "") + " ] (runtime-resolved)");
