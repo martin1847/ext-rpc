@@ -3,7 +3,7 @@
 # ext-rpc
 
 ```gradle
-    api "tech.krpc.ext:ext-rpc:1.0.0"
+    api "tech.krpc.ext:ext-rpc:1.0.5"
 ```
 
 基于[Quarkus](https://quarkus.io/)的自动扫描注入,以`quarkus-extension`扩展形式提供.
@@ -16,6 +16,8 @@ https://github.com/quarkiverse
 * rpc-client
 
 ## changelogs
+
+* 2026-07-18 (1.0.5) krpc rpc-* 依赖对齐 1.1.0 → **1.1.1**（OTEL-003 根因修复）。1.1.0 是 pre-OTEL 的 rpc-client，krpc 1.1.1 消费者若不显式强制版本，会静默运行「旧 client / 新 server」组合；将 pin 抬到 1.1.1 消除此偏斜。纯版本 pin，无行为变更（ext-rpc 侧无源码改动，编译/测试对 1.1.1 通过）。native-it 的 `rpc-server-quarkus:1.0.3` 仍为 CI-only 测试脚手架坐标（未动），其传递的 `rpc-common` 由 Gradle 统一上抬至 client pin 1.1.1。
 
 * 2026-07-05 (1.0.4) krpc rpc-* 依赖对齐 1.0.3 → **1.1.0**（消除 LH 观察到的 rpc-client / rpc-common 版本偏斜）。krpc 1.1.0 移除了 `client.ext.ClientConfiguration` / `Remote`（ext-rpc 未引用），并将 `RpcClientFactory.setDefaultCacheManager(Object)` 改为 `setCacheManager(CacheManager)`——`ClientRecorder` 随之适配。native-it 中 rpc-server-quarkus 传递的 `rpc-common:1.0.3` 由 Gradle 统一上抬至 1.1.0，全链无残留偏斜。
 
