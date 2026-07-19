@@ -1,3 +1,5 @@
+description = 'krpc Quarkus extension (deployment) — build-time augmentation registering krpc DTO reflection for GraalVM native and JVM builds.'
+
 dependencies {
 //    implementation platform("io.quarkus:quarkus-bom:${quarkusPlatformVersion}")
 //    api "io.quarkus:quarkus-arc-deployment:${quarkusPlatformVersion}"
