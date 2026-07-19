@@ -2,6 +2,8 @@ plugins {
     id "io.quarkus.extension"//  version "3.27.1"
 }
 
+description = 'krpc Quarkus extension (runtime) — auto-wires the krpc client in Quarkus apps with GraalVM native-image reflection for krpc DTOs.'
+
 quarkusExtension {
     deploymentModule = 'ext-rpc-deployment'
 }
