@@ -3,7 +3,8 @@
 Quarkus extension that packages the KRPC RPC **client** (`rpc-client`) as a
 `quarkus-extension`: auto-scan discovery and injection of RPC clients, build- and
 run-time client config, and native-image support. Artifact `tech.krpc.ext:ext-rpc`
-(currently `1.0.4`; `rpc-*` deps at `1.1.0`). Capability-cluster ownership lives in
+(version and `rpc-*` pin: `gradle.properties` is authoritative — do not trust
+versions quoted in prose). Capability-cluster ownership lives in
 the umbrella `docs/modules/extensions.md`.
 
 ## Scope
@@ -42,8 +43,8 @@ Java 21 baseline (build.gradle `sourceCompatibility 21`); Gradle wrapper 9.6.0.
 - `./gradlew testNative` (in `native-it`) — native round-trip smoke; needs GraalVM
   (not verified).
 
-Note: README's `api "tech.krpc.ext:ext-rpc:1.0.0"` coordinate is stale; the build files
-(`version 1.0.4`, `rpcVersion 1.1.0`) are authoritative.
+Note: README install coordinates may lag releases; `gradle.properties` is
+authoritative.
 
 ## Discipline
 
