@@ -32,7 +32,10 @@ the umbrella `docs/modules/extensions.md`.
   so krpc and ext-rpc can be released independently. Both halves of the extension are gated on
   runtime-classpath probes (`RpcProcessor.IsClient` / `IsServer`, via
   `QuarkusClassLoader.isClassPresentAtRuntime`) — never re-promote a `tech.krpc` dep to
-  `implementation`/`api` to "fix" a compile error; the consumer supplies it.
+  `implementation`/`api` to "fix" a compile error; the consumer supplies it. Guarded by the
+  `no-client-it` module (a server-only consumer with rpc-client excluded), which runs in
+  `./gradlew build` and as the second native-smoke leg. If it goes red, a client type became
+  reachable outside the `onlyIf = IsClient` gate — fix that, do not weaken the guard.
 - Native-image is first-class: every feature must work under AOT/native (closed-world,
   explicit metadata, no open-ended reflection). (NS-7.)
 - Long-term direction: umbrella `docs/NORTH_STAR.md` — most relevant here NS-1, NS-2,
@@ -49,6 +52,16 @@ Java 21 baseline (build.gradle `sourceCompatibility 21`); Gradle wrapper 9.6.0.
   (not verified).
 - `./gradlew testNative` (in `native-it`) — native round-trip smoke; needs GraalVM
   (not verified).
+
+Two verification-only modules, never published: `native-it` (consumer WITH rpc-client —
+native gRPC round-trip, inherited-DTO reflection, client URL env override) and
+`no-client-it` (consumer WITHOUT rpc-client — the zero-dependency invariant above).
+
+## Releasing
+
+`docs/RELEASING.md` — the two-gate Central flow, the irreversible step, and the traps
+(gitignored wrapper, `~/.m2` mirror blocking Central, credential handling). Read it
+before publishing anything.
 
 Note: README install coordinates may lag releases; `gradle.properties` is
 authoritative.
