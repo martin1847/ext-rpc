@@ -22,3 +22,9 @@ include 'ext-rpc','ext-rpc-deployment'
 // for this module, so it produces no Maven publication and never enters the Central bundle
 // (publish-central.sh globs */build/central-staging, which native-it never creates).
 include 'native-it'
+
+// Negative-control guard app: a SERVER-ONLY consumer with rpc-client absent, proving the
+// zero-tech.krpc-dependency invariant (AGENTS.md) holds at augmentation time. Also NOT published.
+// It must be its own Gradle module — see no-client-it/build.gradle for why a test source set
+// inside ext-rpc-deployment cannot express this.
+include 'no-client-it'

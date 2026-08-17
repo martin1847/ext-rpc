@@ -1,0 +1,133 @@
+// no-client-it — the NEGATIVE control for the zero-tech.krpc-dependency invariant (AGENTS.md).
+// An IT/verification app, NEVER published (the root build.gradle skips upload.gradle for it).
+//
+// WHAT IT GUARDS
+// ext-rpc 1.1.0 declares rpc-client `compileOnly`, so a server-only consumer never has it on the
+// classpath. Quarkus' ExtensionLoader nonetheless reflectively enumerates every @BuildStep in
+// RpcProcessor — including genRpcClientFactorys / genRpcClients, whose ClientRecorder parameter
+// carries `Supplier<tech.krpc.client.RpcClientFactory>` in its signature, and for which Quarkus
+// builds a recorder proxy via Class.getDeclaredMethods(). That only survives because those steps
+// are gated on `onlyIf = IsClient` and never execute here. Move a client type anywhere reachable
+// outside that guard and EVERY server-only consumer breaks at build time; this module turns that
+// into a red build instead.
+//
+// WHY A SEPARATE MODULE AND NOT A TEST SOURCE SET IN ext-rpc-deployment
+// QuarkusUnitTest does not augment against the Test task's classpath — it builds its application
+// model from the Gradle WORKSPACE module, i.e. the module's `main` + `test` source sets. A custom
+// `noClientTest` source set was tried and proved this the hard way: inside it, IsClient came back
+// TRUE (rpc-client is a `test` dependency of ext-rpc-deployment, needed by the positive-control
+// tests) while IsServer came back FALSE (rpc-server was declared only on the custom source set and
+// so was invisible to the app model) — both probes inverted, perfectly correlated with the `test`
+// source set and not at all with the custom one. One module therefore cannot hold both the
+// with-client and the without-client shape.
+plugins {
+    // Version comes from the root plugins block (declared apply false there) so both quarkus
+    // plugins share one classloader — see root build.gradle. No version here.
+    id 'io.quarkus'
+}
+
+group = "tech.krpc.ext.it"
+
+// Force the ext-rpc artifacts onto the local projects, so augmentation runs THIS tree's extension
+// rather than a published one (same trick as native-it; the extension descriptor inside ext-rpc
+// names the deployment module by GAV).
+configurations.all {
+    resolutionStrategy.dependencySubstitution {
+        substitute module('tech.krpc.ext:ext-rpc') using project(':ext-rpc')
+        substitute module('tech.krpc.ext:ext-rpc-deployment') using project(':ext-rpc-deployment')
+    }
+    // THE defining constraint of this module. Belt and braces on top of simply not declaring it:
+    // no transitive path may quietly restore rpc-client, or the guard would pass vacuously.
+    exclude group: 'tech.krpc', module: 'rpc-client'
+}
+
+dependencies {
+    implementation platform("io.quarkus.platform:quarkus-bom:${quarkusMiniSupport}")
+    implementation "io.quarkus:quarkus-arc"
+    implementation "io.quarkus:quarkus-netty"
+
+    // The extension under test.
+    implementation project(':ext-rpc')
+
+    // Server side ONLY. This is what makes the module a faithful server-only consumer — IsServer
+    // stays true while IsClient goes false — rather than a vacuous "nothing is present" app.
+    // rpc-server brings rpc-api + rpc-common, never rpc-client.
+    implementation "tech.krpc:rpc-server:${rpcVersion}"
+
+    // A server consumer necessarily has a grpc transport; ext-rpc's IsServer BuildStep registers
+    // the io.grpc.netty providers for native.
+    runtimeOnly "io.grpc:grpc-netty:1.79.0"
+}
+
+// ---------------------------------------------------------------------------------------------
+// Guard assertions. `quarkusBuild` succeeding is already the primary assertion (augmentation ran
+// with rpc-client absent). These add the two controls that stop it passing for the wrong reason.
+// ---------------------------------------------------------------------------------------------
+tasks.register('assertNoClientControls') {
+    description = 'Validates that the no-client guard is actually client-free and still server-shaped.'
+    group = 'verification'
+
+    def names = providers.provider {
+        configurations.runtimeClasspath.resolve().collect { it.name }
+    }
+
+    doLast {
+        def cp = names.get()
+        def client = cp.findAll { it.startsWith('rpc-client') }
+        if (!client.isEmpty()) {
+            throw new GradleException(
+                    "no-client-it is not client-free — rpc-client is on the runtime classpath ${client}."
+                            + " The guard would pass vacuously; fix the exclude instead of deleting the guard.")
+        }
+        // Positive control: prove the check above can see krpc artifacts at all, and that this is
+        // still a SERVER consumer (otherwise IsClient=false proves nothing about the gating).
+        def server = cp.findAll { it.startsWith('rpc-server') }
+        if (server.isEmpty()) {
+            throw new GradleException(
+                    "no-client-it lost its server side — rpc-server must stay on the runtime classpath,"
+                            + " otherwise the guard degenerates into 'nothing is present'. classpath=${cp}")
+        }
+        logger.lifecycle("PASS no-client controls: rpc-client absent, rpc-server present ${server}")
+    }
+}
+
+tasks.register('assertNoClientWiring') {
+    description = 'Asserts augmentation emitted zero tech.krpc.client wiring for a server-only app.'
+    group = 'verification'
+    dependsOn tasks.named('quarkusBuild')
+
+    def generated = layout.buildDirectory.file('quarkus-app/quarkus/generated-bytecode.jar')
+
+    // This inspects the fast-jar output, which only exists in JVM packaging mode. Under
+    // -Dquarkus.package.jar.enabled=false (the native leg) it must SKIP rather than silently
+    // re-inspect a stale jar left by an earlier JVM build and report a meaningless PASS. The
+    // native leg asserts through the build log (CNFE-free) and the boot log instead — see
+    // .github/workflows/native-smoke.yml.
+    onlyIf {
+        !'false'.equalsIgnoreCase(providers.systemProperty('quarkus.package.jar.enabled').getOrElse('true'))
+    }
+
+    doLast {
+        def jar = generated.get().asFile
+        if (!jar.exists()) {
+            throw new GradleException("guard could not run: ${jar} is missing — did the Quarkus"
+                    + " fast-jar output layout change? Fix the guard rather than dropping it.")
+        }
+        def entries = new java.util.zip.ZipFile(jar).withCloseable { zf ->
+            java.util.Collections.list(zf.entries()).collect { it.name }
+        }
+        def offenders = entries.findAll {
+            it.startsWith('tech/krpc/client/') || it.contains('RpcClientFactory') ||
+                    it.contains('genRpcClientFactorys') || it.contains('genRpcClients')
+        }
+        if (!offenders.isEmpty()) {
+            throw new GradleException("ext-rpc emitted CLIENT wiring into a server-only application"
+                    + " — the onlyIf = IsClient gate is not holding: ${offenders}")
+        }
+        logger.lifecycle("PASS no-client wiring: ${entries.size()} generated classes, zero client beans/recorders")
+    }
+}
+
+tasks.named('check') {
+    dependsOn tasks.named('assertNoClientControls'), tasks.named('assertNoClientWiring')
+}

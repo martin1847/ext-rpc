@@ -167,3 +167,64 @@ jobs:
 
           kill $PID 2>/dev/null || true
           exit $fail
+
+      # ------------------------------------------------------------------------------------
+      # Second leg: the NEGATIVE control. Everything above is a consumer WITH rpc-client
+      # (native-it injects @Named("payment-server") RpcClientFactory, so it cannot be reused
+      # for this). Since ext-rpc 1.1.0 publishes zero tech.krpc dependencies, the shape that
+      # actually ships to a server-only consumer — rpc-server present, rpc-client absent — was
+      # covered by nothing native. no-client-it is that consumer; see its build.gradle.
+      # Runs in this job to reuse the Mandrel + Gradle setup above.
+      # ------------------------------------------------------------------------------------
+      - name: Build no-client-it native image (server-only consumer, rpc-client ABSENT)
+        run: |
+          set -euo pipefail
+          gradle --init-script .github/ci-init.gradle :no-client-it:build \
+            -Dquarkus.native.enabled=true \
+            -Dquarkus.native.container-build=false \
+            -Dquarkus.package.jar.enabled=false \
+            -x test 2>&1 | tee /tmp/no-client-build.log
+
+      - name: Assert the no-client native build is CNFE-free
+        run: |
+          set -euo pipefail
+          # Without rpc-client, Quarkus' ExtensionLoader still reflectively enumerates
+          # RpcProcessor's client @BuildStep methods, whose ClientRecorder signature names
+          # tech.krpc.client.RpcClientFactory. It survives only because those steps are gated on
+          # onlyIf = IsClient and never execute. A regression shows up here as a linkage error.
+          if grep -nE 'ClassNotFoundException|NoClassDefFoundError|printStackTrace' /tmp/no-client-build.log; then
+            echo "::error::server-only consumer broke at augmentation — a client type is reachable outside the onlyIf = IsClient gate"
+            exit 1
+          fi
+          # Positive control for the grep itself: the build MUST contain the IsClient probe's
+          # not-found warning, otherwise this leg silently stopped being a no-client build and
+          # the assertion above would pass for the wrong reason.
+          if ! grep -q 'IGNORE NotFound RpcProcessor : tech.krpc.client.ClientContext' /tmp/no-client-build.log; then
+            echo "::error::no-client leg is not client-free — IsClient did not report rpc-client as absent"
+            exit 1
+          fi
+          echo "PASS: no-client native build is CNFE-free, and IsClient correctly saw no rpc-client"
+
+      - name: Boot the no-client native runner
+        run: |
+          set -euo pipefail
+          RUNNER=$(ls no-client-it/build/*-runner)
+          echo "runner: $RUNNER"; file "$RUNNER"
+          "$RUNNER" >/tmp/no-client-it.log 2>&1 &
+          PID=$!
+          for i in $(seq 1 50); do
+            grep -q "started in" /tmp/no-client-it.log && break
+            sleep 0.2
+          done
+          echo "--- boot log ---"; cat /tmp/no-client-it.log
+          fail=0
+          grep -q "native" /tmp/no-client-it.log || { echo "::error::no-client runner did not report native mode"; fail=1; }
+          # The extension must still install itself in a server-only app — proving the app was
+          # built WITH ext-rpc active, not merely without errors.
+          grep -q "ext-rpc" /tmp/no-client-it.log || { echo "::error::ext-rpc feature missing from a server-only app"; fail=1; }
+          if grep -nE 'Exception|NoClassDefFoundError' /tmp/no-client-it.log; then
+            echo "::error::exception in the no-client runner boot log"; fail=1
+          fi
+          [ $fail -eq 0 ] && echo "PASS: server-only native image boots with the ext-rpc feature installed"
+          kill $PID 2>/dev/null || true
+          exit $fail

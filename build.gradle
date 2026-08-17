@@ -36,11 +36,11 @@ allprojects {
 subprojects {
     apply plugin: 'java-library'
 
-    // native-it is an IT/verification app, NOT a published artifact: skip the publish wiring
-    // (maven-publish + signing + javadoc/sources jars) so it produces no Maven publication and
-    // never enters the Central bundle. publish-central.sh globs */build/central-staging, which
-    // this module then never creates. (EXTRPC-NATIVE-IT guardrail.)
-    if (name != 'native-it') {
+    // native-it / no-client-it are IT/verification apps, NOT published artifacts: skip the publish
+    // wiring (maven-publish + signing + javadoc/sources jars) so they produce no Maven publication
+    // and never enter the Central bundle. publish-central.sh globs */build/central-staging, which
+    // these modules then never create. (EXTRPC-NATIVE-IT guardrail.)
+    if (!(name in ['native-it', 'no-client-it'])) {
         apply from: "$rootProject.projectDir/gradle/upload.gradle"
     }
 
