@@ -40,8 +40,10 @@ dependencies {
     implementation project(':ext-rpc')
 
     // EXTRPC-URL-001 native env-override guard: the client consumer (PaymentRpc + ClientUrlProbe)
-    // compiles against RpcClientFactory. ext-rpc declares rpc-client as `implementation`, so it is
-    // not transitive to this consumer's compile classpath — make it explicit.
+    // compiles against RpcClientFactory. ext-rpc declares rpc-client as `compileOnly` (zero
+    // tech.krpc deps in its published POM), so it is neither on this consumer's compile nor its
+    // runtime classpath unless declared here — which is also what makes this module a faithful
+    // stand-in for a real client consumer, and what flips RpcProcessor.IsClient to true.
     implementation "tech.krpc:rpc-client:${rpcVersion}"
 
     implementation platform("io.quarkus.platform:quarkus-bom:${quarkusMiniSupport}")
