@@ -3,7 +3,7 @@
 # ext-rpc
 
 ```gradle
-    api "tech.krpc.ext:ext-rpc:1.0.5"
+    api "tech.krpc.ext:ext-rpc:1.1.0"
 ```
 
 基于[Quarkus](https://quarkus.io/)的自动扫描注入,以`quarkus-extension`扩展形式提供.
@@ -12,10 +12,22 @@
 https://github.com/quarkiverse
 
 
-依赖 
-* rpc-client
+依赖
+
+* **无 `tech.krpc` 运行时依赖**（1.1.0 起）。`rpc-api` / `rpc-client` 均为 `compileOnly`，不进发布 POM。
+  客户端能力由构建期探测 `tech.krpc.client.ClientContext` 是否在**消费者运行时 classpath** 上决定：
+  在场则装配 RPC client（消费者自带 `rpc-client`，krpc ≥ 1.2.0 的 `rpc-server-quarkus` 已自带）；
+  不在场则相关 BuildStep 被 `onlyIf` 跳过。服务端侧一直如此。
 
 ## changelogs
+
+* 2026-08-17 (1.1.0) **打包破坏性变更**：发布 POM 清零 `tech.krpc` 依赖——`ext-rpc` 的 `rpc-client`
+  与 `ext-rpc-deployment` 的 `rpc-api`/`rpc-client` 全部改为 `compileOnly`。目的是打断
+  `rpc-server-quarkus → ext-rpc → rpc-client` 的跨仓发布环，使 krpc 与 ext-rpc 可独立发版。
+  **影响**：此前靠 ext-rpc 传递拿到 `rpc-client` 的消费者，需显式声明 `tech.krpc:rpc-client`
+  （或升到 krpc ≥ 1.2.0，其 `rpc-server-quarkus` 自带 client）。同时把 `IsClient`/`IsServer`
+  的探测从裸 `Class.forName`（探的是 deployment classloader，latent bug，同 EXTRPC-URL-001 病根）
+  换为 `QuarkusClassLoader.isClassPresentAtRuntime`；删除死代码 `ClientFactoryMBI`。装配行为未变。
 
 * 2026-07-18 (1.0.5) krpc rpc-* 依赖对齐 1.1.0 → **1.1.1**（OTEL-003 根因修复）。1.1.0 是 pre-OTEL 的 rpc-client，krpc 1.1.1 消费者若不显式强制版本，会静默运行「旧 client / 新 server」组合；将 pin 抬到 1.1.1 消除此偏斜。纯版本 pin，无行为变更（ext-rpc 侧无源码改动，编译/测试对 1.1.1 通过）。native-it 的 `rpc-server-quarkus:1.0.3` 仍为 CI-only 测试脚手架坐标（未动），其传递的 `rpc-common` 由 Gradle 统一上抬至 client pin 1.1.1。
 

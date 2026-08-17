@@ -7,8 +7,12 @@ dependencies {
 //    api "io.quarkus:quarkus-agroal-deployment:${quarkusPlatformVersion}"
     implementation project(':ext-rpc')
 
-    implementation "tech.krpc:rpc-api:$rpcVersion"
-    implementation "tech.krpc:rpc-client:$rpcVersion"
+    // compileOnly on purpose — same zero-tech.krpc-dependency POM rule as :ext-rpc (see its
+    // build.gradle). rpc-api is only needed for Jandex DotName constants and annotation types at
+    // build time; rpc-client only for the synthetic-bean class literal. Both are supplied by the
+    // consuming application at augmentation time when they are actually used.
+    compileOnly "tech.krpc:rpc-api:$rpcVersion"
+    compileOnly "tech.krpc:rpc-client:$rpcVersion"
 
     annotationProcessor("io.quarkus:quarkus-extension-processor:${quarkusMiniSupport}")
 //    api 'org.reflections:reflections:0.10.2'
@@ -16,6 +20,13 @@ dependencies {
     // Guard tests for EXTRPC-URL-001 (client URL runtime override). QuarkusUnitTest boots the
     // extension in-JVM so the synthetic RpcClientFactory bean is built and its channel dial
     // target can be asserted; grpc-netty is the ManagedChannelBuilder provider the supplier needs.
+    // rpc-api/rpc-client are compileOnly above (POM hygiene), which does NOT reach the test
+    // classpath. The guard tests act as a real client consumer, so they must bring both — this
+    // also puts rpc-client on the QuarkusUnitTest runtime classpath, which is what IsClient
+    // probes, keeping the client BuildSteps active under test.
+    testImplementation "tech.krpc:rpc-api:$rpcVersion"
+    testImplementation "tech.krpc:rpc-client:$rpcVersion"
+
     testImplementation "org.junit.jupiter:junit-jupiter:5.10.5"
     testRuntimeOnly "org.junit.platform:junit-platform-launcher:1.10.5"
     testImplementation "io.quarkus:quarkus-junit-internal:${quarkusMiniSupport}"

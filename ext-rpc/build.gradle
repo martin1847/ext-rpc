@@ -21,7 +21,14 @@ dependencies {
     compileOnly 'org.graalvm.sdk:nativeimage:24.0.1'
 
 
-    implementation "tech.krpc:rpc-client:$rpcVersion"
+    // compileOnly on purpose: ext-rpc must publish a POM with ZERO tech.krpc dependencies, so the
+    // krpc <-> ext-rpc release cycle is broken (rpc-server-quarkus depends on ext-rpc at runtime;
+    // a runtime edge back to rpc-client made the two repos un-releasable independently).
+    // The client half of the extension is guarded by RpcProcessor.IsClient, which probes
+    // tech.krpc.client.ClientContext on the RUNTIME classpath — so a server-only consumer never
+    // reaches the client BuildSteps, and a client consumer brings rpc-client itself (krpc >= 1.2.0
+    // ships it from rpc-server-quarkus).
+    compileOnly "tech.krpc:rpc-client:$rpcVersion"
 
     annotationProcessor("io.quarkus:quarkus-extension-processor:${quarkusMiniSupport}")
 }

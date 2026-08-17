@@ -26,6 +26,13 @@ the umbrella `docs/modules/extensions.md`.
   a wire change. (NS-1 interface-as-contract client; NS-2 wire from krpc.)
 - Released on its own cadence, in lockstep with krpc needs — the `rpcVersion` in
   `gradle.properties` is the alignment point.
+- **Invariant (1.1.0+): the published POMs carry ZERO `tech.krpc` dependencies.** `rpc-api` /
+  `rpc-client` are `compileOnly`; `rpcVersion` is a compile-time pin only, with no transitive
+  effect. This breaks the `rpc-server-quarkus → ext-rpc → rpc-client` cross-repo release cycle,
+  so krpc and ext-rpc can be released independently. Both halves of the extension are gated on
+  runtime-classpath probes (`RpcProcessor.IsClient` / `IsServer`, via
+  `QuarkusClassLoader.isClassPresentAtRuntime`) — never re-promote a `tech.krpc` dep to
+  `implementation`/`api` to "fix" a compile error; the consumer supplies it.
 - Native-image is first-class: every feature must work under AOT/native (closed-world,
   explicit metadata, no open-ended reflection). (NS-7.)
 - Long-term direction: umbrella `docs/NORTH_STAR.md` — most relevant here NS-1, NS-2,

@@ -13,6 +13,7 @@ import tech.krpc.annotation.RpcService;
 import tech.krpc.ext.runtime.ClientConfig;
 import tech.krpc.ext.runtime.ClientRecorder;
 import io.quarkus.arc.deployment.SyntheticBeanBuildItem;
+import io.quarkus.bootstrap.classloading.QuarkusClassLoader;
 import io.quarkus.deployment.annotations.BuildProducer;
 import io.quarkus.deployment.annotations.BuildStep;
 import io.quarkus.deployment.annotations.ExecutionTime;
@@ -341,15 +342,28 @@ public class RpcProcessor {
         return checkExists("tech.krpc.server.ServerContext");
     }
 
-    static boolean checkExists(String client) {
-        try {
-            Class.forName(client);
-            return true;
-        } catch (ClassNotFoundException e) {
-            LOG.warn("=== IGNORE NotFound RpcProcessor : " + client);
+    /**
+     * Ask whether the class will be on the <em>application runtime</em> classpath — not merely
+     * whether augmentation can load it.
+     * <p>
+     * The deployment {@code QuarkusClassLoader} sees both kinds of class-path element: the ones
+     * that survive into the running application and the deployment-only ones (extension
+     * {@code -deployment} artifacts and their dependencies). The previous bare
+     * {@code Class.forName} could not tell them apart, so a class present only for augmentation
+     * would be reported as present at runtime — a false positive that switches a whole half of
+     * this extension on for an application that cannot run it.
+     * {@code isClassPresentAtRuntime} filters on {@code ClassPathElement.isRuntime()}, which is
+     * exactly the question {@code IsClient}/{@code IsServer} mean to ask. Same family of
+     * build-time-vs-runtime classloader confusion that {@code ClientProcessor.genRpcClientFactorys}
+     * was fixed for (EXTRPC-URL-001), and load-bearing now that rpc-api/rpc-client are
+     * {@code compileOnly}: the consumer, not this extension, supplies them.
+     */
+    static boolean checkExists(String className) {
+        boolean present = QuarkusClassLoader.isClassPresentAtRuntime(className);
+        if (!present) {
+            LOG.warn("=== IGNORE NotFound RpcProcessor : " + className);
         }
-        return false;
-
+        return present;
     }
 
     static void recursionParameterizedType(Set<DotName> total, Type t) {
